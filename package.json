@@ -1,0 +1,24 @@
+{
+  "name": "nuremageris",
+  "version": "0.1.0",
+  "description": "PostgreSQL access methods performance benchmark",
+  "private": true,
+  "scripts": {
+    "db:seed": "tsx db/seed/seed.ts",
+    "bench": "tsx bench/runner/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "commander": "^12.0.0",
+    "dotenv": "^16.4.0",
+    "knex": "^3.1.0",
+    "pg": "^8.11.0"
+  },
+  "devDependencies": {
+    "@faker-js/faker": "^8.4.0",
+    "@types/node": "^20.0.0",
+    "@types/pg": "^8.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  }
+}

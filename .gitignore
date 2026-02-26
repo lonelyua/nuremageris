@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.env
+bench/reports/*.json
+bench/reports/*.csv
+bench/reports/charts/
