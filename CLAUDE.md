@@ -45,6 +45,16 @@ bench/runner/     CLI runner, stats helpers, CSV serialisation
 bench/reports/    Output files (gitignored)
 ```
 
+## Port configuration
+
+The Docker container exposes PostgreSQL on host port **5433** (not 5432), because a system-wide
+PostgreSQL instance is already running on `127.0.0.1:5432`.
+
+Mapping: `docker-compose.yml` → `5433:5432`, `.env` → `PG_PORT=5433`.
+
+If the local instance is absent and you want to use the default port, change both values back to 5432
+and recreate the container with `docker compose down -v && docker compose up -d`.
+
 ## Commands
 
 ```bash
