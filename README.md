@@ -2,20 +2,22 @@
 
 Diploma project: PostgreSQL access-method performance benchmark.
 
-Compares raw SQL (`pg`), query builder (`knex`), and (later) ORM / stored-procedure approaches
-across a common set of realistic read/write scenarios.
+Compares latency and throughput of four data-access approaches across a common set of realistic
+read/write scenarios: raw SQL, query builder, repository/DAL, and ORM.
 
 ---
 
 ## Stack
 
-| Layer       | Tool                       |
-|-------------|----------------------------|
-| Database    | PostgreSQL 16 (Docker)     |
-| Runtime     | Node.js 20 + TypeScript    |
-| Raw SQL     | `pg` (node-postgres)       |
-| Query build | `knex`                     |
-| Seed data   | `@faker-js/faker`          |
+| Layer            | Tool                       |
+|------------------|----------------------------|
+| Database         | PostgreSQL 16 (Docker)     |
+| Runtime          | Node.js 20 + TypeScript    |
+| Raw SQL (`raw`)  | `pg` (node-postgres)       |
+| Query builder (`knex`) | `knex`               |
+| Repository/DAL (`dal`) | `knex` + repositories |
+| ORM (`orm`)      | Prisma 5                   |
+| Seed data        | `@faker-js/faker`          |
 
 ## Quick start
 
@@ -29,15 +31,18 @@ docker compose up -d
 # 3. install deps
 npm install
 
-# 4. seed (default size M = 10k users)
+# 4. generate Prisma client (required for orm adapter)
+npm run db:generate
+
+# 5. seed (default size M = 10k users)
 npm run db:seed
 
-# 5. run full benchmark
+# 6. run full benchmark (all 4 adapters)
 npm run bench
 
-# 6. run specific adapters / cases
+# 7. run specific adapters / cases
 npm run bench -- --adapter raw --case findUserById,getOrderWithDetails
-npm run bench -- --adapter raw,knex --warmup 10 --iterations 100
+npm run bench -- --adapter raw,knex,dal --warmup 10 --iterations 100
 ```
 
 ## Project structure
@@ -55,8 +60,12 @@ nuremageris/
 ├── src/
 │   ├── types.ts         domain types + DbAdapter interface
 │   └── clients/
-│       ├── raw-sql/     pg adapter
-│       └── query-builder/   knex adapter
+│       ├── raw-sql/          pg adapter
+│       ├── query-builder/    knex adapter
+│       ├── data-access-layer/  repository pattern (UserRepository, OrderRepository, ProductRepository) over knex
+│       └── orm/              Prisma adapter
+├── prisma/
+│   └── schema.prisma    Prisma schema (mirrors 001_schema.sql)
 └── bench/
     ├── cases/index.ts   test case definitions
     ├── runner/index.ts  CLI runner
@@ -93,7 +102,7 @@ Override with `SEED_SIZE=L npm run db:seed`.
 ## Runner flags
 
 ```
---adapter   raw,knex            which adapters to run (default: all)
+--adapter   raw,knex,dal,orm    which adapters to run (default: all)
 --case      findUserById,...    which cases to run (default: all)
 --warmup    5                   warm-up iterations before measuring
 --iterations 50                 measured iterations

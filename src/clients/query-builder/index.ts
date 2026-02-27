@@ -126,7 +126,7 @@ export class QueryBuilderAdapter implements DbAdapter {
         'ranked.last_order_at'
       )
       .join('users as u', 'u.id', 'ranked.user_id')
-      .where('ranked.rn', 1)
+      .whereRaw('ranked.rn = 1')
       .orderBy('ranked.last_order_at', 'desc')
       .limit(limit)
   }
@@ -163,7 +163,7 @@ export class QueryBuilderAdapter implements DbAdapter {
   async createOrderWithItems(data: NewOrderInput): Promise<Order> {
     return this.db.transaction(async trx => {
       const [order] = await trx<Order>('orders')
-        .insert({ user_id: data.userId, status: 'pending', total: data.paymentAmount })
+        .insert({ user_id: data.userId, status: 'pending', total: String(data.paymentAmount) })
         .returning(['id', 'user_id', 'status', 'total', 'created_at'])
 
       if (data.items.length > 0) {

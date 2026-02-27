@@ -2,24 +2,28 @@ import { Command } from 'commander'
 import * as fs   from 'fs'
 import * as path from 'path'
 
-import { RawSqlAdapter }       from '../../src/clients/raw-sql'
-import { QueryBuilderAdapter } from '../../src/clients/query-builder'
-import { benchConfig }         from '../../configs/bench'
+import { RawSqlAdapter }            from '../../src/clients/raw-sql'
+import { QueryBuilderAdapter }      from '../../src/clients/query-builder'
+import { DataAccessLayerAdapter }   from '../../src/clients/data-access-layer'
+import { PrismaAdapter }            from '../../src/clients/orm'
+import { benchConfig }              from '../../configs/bench'
 import { cases, caseMap, CaseContext } from '../cases'
-import type { DbAdapter }      from '../../src/types'
+import type { DbAdapter }           from '../../src/types'
 
 // ------------------------------------------------------------------
 // Adapter registry
 // ------------------------------------------------------------------
 
-type AdapterName = 'raw' | 'knex'
+type AdapterName = 'raw' | 'knex' | 'dal' | 'orm'
 
-const ADAPTER_NAMES: AdapterName[] = ['raw', 'knex']
+const ADAPTER_NAMES: AdapterName[] = ['raw', 'knex', 'dal', 'orm']
 
 function createAdapter(name: AdapterName): DbAdapter {
   switch (name) {
     case 'raw':  return new RawSqlAdapter()
     case 'knex': return new QueryBuilderAdapter()
+    case 'dal':  return new DataAccessLayerAdapter()
+    case 'orm':  return new PrismaAdapter()
     default:     throw new Error(`Unknown adapter: ${name as string}. Valid: ${ADAPTER_NAMES.join(', ')}`)
   }
 }
@@ -138,7 +142,7 @@ async function main() {
   program
     .name('bench')
     .description('PostgreSQL access-method performance benchmark')
-    .option('--adapter <names>', `Comma-separated adapters (${ADAPTER_NAMES.join('|')})`, 'raw,knex')
+    .option('--adapter <names>', `Comma-separated adapters (${ADAPTER_NAMES.join('|')})`, ADAPTER_NAMES.join(','))
     .option('--case <names>',    'Comma-separated case names (default: all)')
     .option('--warmup <n>',      'Warmup iterations',  String(benchConfig.warmup))
     .option('--iterations <n>',  'Measured iterations', String(benchConfig.iterations))
@@ -189,7 +193,6 @@ async function main() {
 
     try {
       for (const caseName of caseNames) {
-        const bench = caseMap[caseName]
         process.stdout.write(`  ${caseName.padEnd(30)} `)
         const result = await runCase(adapter, caseName, adapterName, warmup, iterations)
         allResults.push(result)

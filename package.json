@@ -1,14 +1,17 @@
 {
   "name": "nuremageris",
   "version": "0.1.0",
-  "description": "PostgreSQL access methods performance benchmark",
+  "description": "Diploma project: PostgreSQL access methods performance benchmark",
   "private": true,
+  "author": "lonelyua",
   "scripts": {
-    "db:seed": "tsx db/seed/seed.ts",
-    "bench": "tsx bench/runner/index.ts",
-    "typecheck": "tsc --noEmit"
+    "db:seed":     "tsx db/seed/seed.ts",
+    "db:generate": "prisma generate",
+    "bench":       "tsx bench/runner/index.ts",
+    "typecheck":   "tsc --noEmit"
   },
   "dependencies": {
+    "@prisma/client": "^5.0.0",
     "commander": "^12.0.0",
     "dotenv": "^16.4.0",
     "knex": "^3.1.0",
@@ -18,6 +21,7 @@
     "@faker-js/faker": "^8.4.0",
     "@types/node": "^20.0.0",
     "@types/pg": "^8.11.0",
+    "prisma": "^5.0.0",
     "tsx": "^4.7.0",
     "typescript": "^5.4.0"
   }

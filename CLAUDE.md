@@ -7,7 +7,8 @@ Diploma project: benchmarking different PostgreSQL access methods in Node.js/Typ
 Compare latency and throughput of the following access methods on identical scenarios:
 - `raw` — plain SQL via `pg` (node-postgres)
 - `knex` — query builder
-- `orm` — Prisma (planned)
+- `dal` — Data Access Layer / Repository pattern on top of knex (`UserRepository`, `OrderRepository`, `ProductRepository`)
+- `orm` — Prisma 5 (fluent API + `$queryRaw` for window functions / GROUP BY)
 - `hybrid-orm` — ORM + raw SQL for heavy queries (planned)
 - `stored-proc` — stored procedure calls (planned)
 
@@ -39,7 +40,14 @@ configs/          db.ts (connection config), bench.ts (sizes, warmup)
 db/schema/        SQL schema — applied by Docker on first start
 db/seed/          seed.ts — S/M/L dataset generation
 src/types.ts      Domain types + DbAdapter interface
-src/clients/      Adapter implementations (one folder per method)
+src/clients/
+  raw-sql/        RawSqlAdapter — pg Pool, plain $N SQL
+  query-builder/  QueryBuilderAdapter — knex
+  data-access-layer/
+    repositories/ UserRepository, OrderRepository, ProductRepository (knex under the hood)
+    index.ts      DataAccessLayerAdapter — delegates to repositories
+  orm/            PrismaAdapter — Prisma 5; $queryRaw for GROUP BY / window functions
+prisma/           schema.prisma — mirrors 001_schema.sql; run `npm run db:generate` before use
 bench/cases/      Case definitions (BenchCase[])
 bench/runner/     CLI runner, stats helpers, CSV serialisation
 bench/reports/    Output files (gitignored)
@@ -61,9 +69,10 @@ and recreate the container with `docker compose down -v && docker compose up -d`
 cp .env.example .env
 docker compose up -d
 npm install
+npm run db:generate                 # generate Prisma client (required for orm adapter)
 npm run db:seed                     # SEED_SIZE=S|M|L
 npm run bench                       # all adapters, all cases
-npm run bench -- --adapter raw,knex --case findUserById,getOrderWithDetails
+npm run bench -- --adapter raw,knex,dal,orm --case findUserById,getOrderWithDetails
 npm run bench -- --warmup 10 --iterations 100 --out bench/reports
 npm run typecheck
 ```
@@ -74,11 +83,15 @@ npm run typecheck
 2. Register in `bench/runner/index.ts`: add to `AdapterName`, `createAdapter()`, and `ADAPTER_NAMES`
 3. Run `npm run bench -- --adapter <name>`
 
+Next planned adapters: `hybrid-orm` (Prisma + $queryRaw for heavy queries), `stored-proc` (PostgreSQL stored procedures).
+
 ## Conventions
 
 - TypeScript strict mode, no `any`
 - All code and code comments must be in English
-- `pg` returns `NUMERIC` as `string` — domain types `price: string`, `total: string` are intentional
+- `pg` returns `NUMERIC` as `string` — domain types `price: string`, `total: string` are intentional; Prisma returns `Decimal` — convert with `.toString()`
 - Always use `$N` placeholders or knex bindings — never string concatenation for SQL params
 - Pool lifecycle: `close()` is called by the runner after all cases for an adapter are done
 - Default dataset size: `M` (10k users, ~2k products, ~5 orders/user)
+- Prisma `$queryRaw` is used for GROUP BY aggregation (`getUserOrderTotals`) and window functions (`getLastOrderPerUser`) — the fluent API does not support these patterns
+- `DATABASE_URL` in `.env` is required for Prisma (format: `postgresql://user:pass@host:port/db`)
