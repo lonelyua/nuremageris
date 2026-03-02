@@ -1,4 +1,5 @@
 import { PrismaClient, Prisma } from '@prisma/client'
+import { dbConfig } from '../../../configs/db'
 import type {
   DbAdapter, User, OrderWithDetails, UserOrderTotal, LastOrderPerUser,
   Order, ListUsersFilters, SortOptions, PageOptions, NewOrderInput,
@@ -10,7 +11,8 @@ export class PrismaAdapter implements DbAdapter {
   private readonly prisma: PrismaClient
 
   constructor() {
-    this.prisma = new PrismaClient({ log: [] })
+    const url = `postgresql://${dbConfig.user}:${dbConfig.password}@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`
+    this.prisma = new PrismaClient({ log: [], datasources: { db: { url } } })
   }
 
   // ------------------------------------------------------------------

@@ -113,7 +113,7 @@ export class RawSqlAdapter implements DbAdapter {
        FROM users u
        LEFT JOIN orders o ON o.user_id = u.id
        GROUP BY u.id, u.name
-       ORDER BY total_spent::numeric DESC
+       ORDER BY COALESCE(SUM(o.total), 0) DESC
        LIMIT $1`,
       [limit]
     )
