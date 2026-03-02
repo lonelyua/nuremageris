@@ -126,8 +126,18 @@ approach holds pool connections longer, saturating the pool faster than single-q
 
 ## Output
 
-- `bench/reports/results_<ts>.json` — raw timings per iteration
-- `bench/reports/summary_<ts>.csv` — aggregated: mean / p50 / p95 / p99 / min / max / errors
+- `bench/reports/results_<ts>.json` — full result objects per case (includes raw `timings_ms[]` array)
+- `bench/reports/summary_<ts>.csv` — aggregated stats per case per adapter:
+
+| Column | Description |
+|--------|-------------|
+| `mean_ms` / `p50_ms` / `p95_ms` / `p99_ms` | Latency percentiles (ms) |
+| `min_ms` / `max_ms` | Min and max observed latency (ms) |
+| `mem_avg_kb` | Average heap used per concurrency step (KB) |
+| `mem_peak_kb` | Peak heap observed during the case run (KB) |
+| `cpu_avg_ms` | Average CPU time (user+sys) per request (ms) |
+| `cpu_peak_ms` | Peak CPU time per request in any step (ms) |
+| `errors` | Count of thrown exceptions |
 
 ## Adding a new adapter
 
