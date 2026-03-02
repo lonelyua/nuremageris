@@ -41,8 +41,8 @@ npm run db:seed
 npm run bench
 
 # 7. run specific adapters / cases
-npm run bench -- --adapter raw --case findUserById,getOrderWithDetails
-npm run bench -- --adapter raw,knex,dal --warmup 10 --iterations 100
+npm run bench -- --adapter raw --case getTopOrdersWithItems,bulkCreateOrders
+npm run bench -- --adapter raw,knex,dal,orm --warmup 10 --iterations 100 --concurrency 10
 ```
 
 ## Project structure
@@ -84,30 +84,45 @@ Override with `SEED_SIZE=L npm run db:seed`.
 
 ## Benchmark cases
 
-| Case                  | Category      | Description                                    |
-|-----------------------|---------------|------------------------------------------------|
-| `findUserById`        | Read simple   | PK lookup                                      |
-| `findUserByEmail`     | Read simple   | Indexed field lookup                           |
-| `listUsers_paged`     | Read simple   | LIMIT/OFFSET + ORDER BY                        |
-| `listUsers_filtered`  | Read simple   | ILIKE filter + pagination                      |
-| `getOrderWithDetails` | Read medium   | 3-table JOIN                                   |
-| `getUserOrderTotals`  | Read medium   | GROUP BY + SUM aggregation                     |
-| `getLastOrderPerUser` | Read heavy    | CTE + ROW_NUMBER (Top-N per group)             |
-| `batchGetUsers`       | Read heavy    | WHERE id IN (100 ids)                          |
-| `insertOneUser`       | Write         | Single INSERT RETURNING                        |
-| `insertManyProducts_100` | Write      | Bulk INSERT 100 rows                           |
-| `createOrderWithItems`| Write         | Transactional: order + items + payment         |
-| `updateOrderStatus`   | Update        | UPDATE by PK                                   |
+### Why these cases show maximum adapter differences
+
+The cases are selected to amplify three classes of overhead:
+
+1. **Round-trip count** — Prisma's `include` generates N separate SELECT queries instead of a single JOIN.
+   Under concurrency each Prisma request holds a pool connection N× longer.
+2. **INSERT batching** — `bulkCreateOrders` exposes Prisma's per-row INSERT vs. raw/knex batch INSERT.
+   With 5 orders × 10 items: raw = 15 statements total, Prisma = 60 statements.
+3. **Query parsing cost** — `batchGetUsers_500` uses `ANY($1::int[])` (1 param) in raw vs.
+   `IN($1…$500)` (500 params) in knex/dal/orm — measurable parse overhead at scale.
+
+### Case table
+
+| Case | Category | What it measures |
+|------|----------|------------------|
+| `findUserById` | Baseline | PK lookup — reference point for minimal overhead |
+| `listUsers_paged` | Baseline | LIMIT/OFFSET + ORDER BY — reference pagination |
+| `getOrderWithDetails` | Read medium | raw/knex/dal: 2 queries; Prisma include: 4 queries |
+| `batchGetUsers_500` | Read heavy | `ANY($1::int[])` (raw) vs `IN($1…$500)` (knex/orm) — 500 ids |
+| `getTopOrdersWithItems` | **Read – key** | raw/knex/dal: 1 JOIN query; Prisma: 6 separate SELECTs + JS merge |
+| `getProductSalesReport` | Analytics | GROUP BY + COUNT DISTINCT + SUM across 3 tables |
+| `getMonthlyRevenueTrend` | Analytics | CTE + window function (running total); 12-month window |
+| `createOrderWithItems` | Write | 1 order + 15 items: raw/knex = 1 batch INSERT; Prisma = 15 individual INSERTs |
+| `bulkCreateOrders` | **Write – key** | 5 orders × 10 items: raw/knex = 15 stmts; Prisma = 60 stmts (4×) |
+| `insertManyProducts_500` | Write | Bulk INSERT 500 rows; JS param-building overhead at 2000 params |
 
 ## Runner flags
 
 ```
---adapter   raw,knex,dal,orm    which adapters to run (default: all)
---case      findUserById,...    which cases to run (default: all)
---warmup    5                   warm-up iterations before measuring
---iterations 50                 measured iterations
---out       bench/reports       output directory
+--adapter      raw,knex,dal,orm    which adapters to run (default: all)
+--case         findUserById,...    which cases to run (default: all)
+--warmup       5                   warm-up iterations before measuring
+--iterations   50                  measured iterations
+--concurrency  5                   parallel requests per iteration
+--out          bench/reports       output directory
 ```
+
+Increasing `--concurrency` amplifies the round-trip delta between adapters: Prisma's multi-query
+approach holds pool connections longer, saturating the pool faster than single-query raw SQL.
 
 ## Output
 
@@ -126,4 +141,4 @@ Override with `SEED_SIZE=L npm run db:seed`.
 - Fixed seed per `SEED_SIZE` (deterministic email pattern `user_N@example.com`)
 - Warmup before measurement
 - Multiple iterations + percentile stats
-- Single-machine, single-process baseline (no concurrency by default)
+- Concurrency configurable via `--concurrency` (default 5)

@@ -1,11 +1,33 @@
 import { Pool, PoolClient } from 'pg'
 import { dbConfig } from '../../../configs/db'
 import type {
-  DbAdapter, User, OrderWithDetails, UserOrderTotal, LastOrderPerUser,
+  DbAdapter, User, OrderWithDetails, OrderWithItems, UserOrderTotal, LastOrderPerUser,
   Order, ListUsersFilters, SortOptions, PageOptions, NewOrderInput,
+  ProductSalesReport, MonthlyRevenue, Payment,
 } from '../../types'
 
 const ALLOWED_SORT_FIELDS = new Set(['id', 'name', 'email', 'created_at'])
+
+// Internal row shape returned by getTopOrdersWithItems JOIN query
+interface TopOrderRow {
+  order_id:        number
+  user_id:         number
+  status:          string
+  order_total:     string
+  order_created_at: Date
+  user_email:      string
+  user_name:       string
+  item_id:         number
+  product_id:      number
+  quantity:        number
+  unit_price:      string
+  product_name:    string
+  category_name:   string
+  pay_id:          number | null
+  pay_amount:      string | null
+  pay_status:      string | null
+  pay_paid_at:     Date | null
+}
 
 export class RawSqlAdapter implements DbAdapter {
   private pool: Pool
@@ -156,6 +178,135 @@ export class RawSqlAdapter implements DbAdapter {
   }
 
   // ------------------------------------------------------------------
+  // Read – deep join (1 query vs Prisma's 6 separate queries)
+  // ------------------------------------------------------------------
+
+  async getTopOrdersWithItems(limit: number): Promise<OrderWithItems[]> {
+    const { rows } = await this.pool.query<TopOrderRow>(
+      `SELECT
+         o.id            AS order_id,
+         o.user_id,
+         o.status,
+         o.total         AS order_total,
+         o.created_at    AS order_created_at,
+         u.email         AS user_email,
+         u.name          AS user_name,
+         oi.id           AS item_id,
+         oi.product_id,
+         oi.quantity,
+         oi.unit_price,
+         p.name          AS product_name,
+         c.name          AS category_name,
+         pay.id          AS pay_id,
+         pay.amount      AS pay_amount,
+         pay.status      AS pay_status,
+         pay.paid_at     AS pay_paid_at
+       FROM (SELECT id FROM orders ORDER BY created_at DESC LIMIT $1) top
+       JOIN orders o           ON o.id = top.id
+       JOIN users u            ON u.id = o.user_id
+       JOIN order_items oi     ON oi.order_id = o.id
+       JOIN products p         ON p.id = oi.product_id
+       JOIN categories c       ON c.id = p.category_id
+       LEFT JOIN payments pay  ON pay.order_id = o.id
+       ORDER BY o.created_at DESC, oi.id`,
+      [limit]
+    )
+    return this.aggregateOrderRows(rows)
+  }
+
+  private aggregateOrderRows(rows: TopOrderRow[]): OrderWithItems[] {
+    const map = new Map<number, OrderWithItems>()
+
+    for (const row of rows) {
+      if (!map.has(row.order_id)) {
+        const payment: Payment | null = row.pay_id !== null
+          ? {
+              id:       row.pay_id,
+              order_id: row.order_id,
+              amount:   row.pay_amount ?? '0',
+              status:   row.pay_status ?? 'pending',
+              paid_at:  row.pay_paid_at,
+            }
+          : null
+
+        map.set(row.order_id, {
+          order: {
+            id:         row.order_id,
+            user_id:    row.user_id,
+            status:     row.status,
+            total:      row.order_total,
+            created_at: row.order_created_at,
+          },
+          user: {
+            id:    row.user_id,
+            email: row.user_email,
+            name:  row.user_name,
+          },
+          items:   [],
+          payment,
+        })
+      }
+
+      map.get(row.order_id)!.items.push({
+        id:            row.item_id,
+        order_id:      row.order_id,
+        product_id:    row.product_id,
+        quantity:      row.quantity,
+        unit_price:    row.unit_price,
+        product_name:  row.product_name,
+        category_name: row.category_name,
+      })
+    }
+
+    return [...map.values()]
+  }
+
+  // ------------------------------------------------------------------
+  // Analytics
+  // ------------------------------------------------------------------
+
+  async getProductSalesReport(): Promise<ProductSalesReport[]> {
+    const { rows } = await this.pool.query<ProductSalesReport>(
+      `SELECT
+         c.id                                                         AS category_id,
+         c.name                                                       AS category_name,
+         COUNT(DISTINCT p.id)::int                                    AS product_count,
+         ROUND(AVG(p.price), 2)::text                                 AS avg_price,
+         COALESCE(SUM(p.stock), 0)::int                               AS total_stock,
+         COUNT(DISTINCT oi.order_id)::int                             AS orders_count,
+         COALESCE(SUM(oi.quantity * oi.unit_price), 0)::text          AS revenue
+       FROM categories c
+       LEFT JOIN products p     ON p.category_id = c.id
+       LEFT JOIN order_items oi ON oi.product_id = p.id
+       GROUP BY c.id, c.name
+       ORDER BY COALESCE(SUM(oi.quantity * oi.unit_price), 0) DESC`
+    )
+    return rows
+  }
+
+  async getMonthlyRevenueTrend(months: number): Promise<MonthlyRevenue[]> {
+    const { rows } = await this.pool.query<MonthlyRevenue>(
+      `WITH monthly AS (
+         SELECT
+           EXTRACT(YEAR  FROM created_at)::int AS year,
+           EXTRACT(MONTH FROM created_at)::int AS month,
+           COUNT(*)::int                        AS order_count,
+           SUM(total)::text                     AS revenue
+         FROM orders
+         WHERE created_at >= NOW() - INTERVAL '1 month' * $1
+         GROUP BY year, month
+       )
+       SELECT
+         year, month, order_count, revenue,
+         SUM(revenue::numeric) OVER (ORDER BY year, month)::text AS running_total
+       FROM monthly
+       ORDER BY year, month`,
+      [months]
+    )
+    return rows
+  }
+
+  // ------------------------------------------------------------------
   // Write
   // ------------------------------------------------------------------
 
@@ -212,6 +363,54 @@ export class RawSqlAdapter implements DbAdapter {
 
       await client.query('COMMIT')
       return order
+    } catch (err) {
+      await client.query('ROLLBACK')
+      throw err
+    } finally {
+      client.release()
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Write – bulk transactional (batch INSERT vs Prisma's per-row INSERT)
+  // ------------------------------------------------------------------
+
+  async bulkCreateOrders(orders: NewOrderInput[]): Promise<Order[]> {
+    if (orders.length === 0) return []
+    const client: PoolClient = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const results: Order[] = []
+
+      for (const data of orders) {
+        const { rows: [order] } = await client.query<Order>(
+          `INSERT INTO orders (user_id, status, total)
+           VALUES ($1, 'pending', $2)
+           RETURNING id, user_id, status, total, created_at`,
+          [data.userId, data.paymentAmount]
+        )
+
+        if (data.items.length > 0) {
+          const placeholders = data.items
+            .map((_, i) => `($${i * 4 + 1}, $${i * 4 + 2}, $${i * 4 + 3}, $${i * 4 + 4})`)
+            .join(', ')
+          const params = data.items.flatMap(it => [order.id, it.productId, it.quantity, it.unitPrice])
+          await client.query(
+            `INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES ${placeholders}`,
+            params
+          )
+        }
+
+        await client.query(
+          `INSERT INTO payments (order_id, amount, status) VALUES ($1, $2, 'pending')`,
+          [order.id, data.paymentAmount]
+        )
+
+        results.push(order)
+      }
+
+      await client.query('COMMIT')
+      return results
     } catch (err) {
       await client.query('ROLLBACK')
       throw err

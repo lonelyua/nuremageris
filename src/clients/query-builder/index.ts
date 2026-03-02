@@ -1,11 +1,33 @@
 import knex, { Knex } from 'knex'
 import { dbConfig } from '../../../configs/db'
 import type {
-  DbAdapter, User, OrderWithDetails, UserOrderTotal, LastOrderPerUser,
+  DbAdapter, User, OrderWithDetails, OrderWithItems, UserOrderTotal, LastOrderPerUser,
   Order, ListUsersFilters, SortOptions, PageOptions, NewOrderInput,
+  ProductSalesReport, MonthlyRevenue, Payment,
 } from '../../types'
 
 const ALLOWED_SORT_FIELDS = new Set(['id', 'name', 'email', 'created_at'])
+
+// Internal row shape returned by getTopOrdersWithItems JOIN query
+interface TopOrderRow {
+  order_id:         number
+  user_id:          number
+  status:           string
+  order_total:      string
+  order_created_at: Date
+  user_email:       string
+  user_name:        string
+  item_id:          number
+  product_id:       number
+  quantity:         number
+  unit_price:       string
+  product_name:     string
+  category_name:    string
+  pay_id:           number | null
+  pay_amount:       string | null
+  pay_status:       string | null
+  pay_paid_at:      Date | null
+}
 
 export class QueryBuilderAdapter implements DbAdapter {
   private db: Knex
@@ -139,6 +161,135 @@ export class QueryBuilderAdapter implements DbAdapter {
   }
 
   // ------------------------------------------------------------------
+  // Read – deep join (1 JOIN query vs Prisma's 6 separate queries)
+  // ------------------------------------------------------------------
+
+  async getTopOrdersWithItems(limit: number): Promise<OrderWithItems[]> {
+    const topIds = this.db('orders').select('id').orderBy('created_at', 'desc').limit(limit).as('top')
+
+    const rows = await this.db<TopOrderRow>(topIds)
+      .join('orders as o',          'o.id',           'top.id')
+      .join('users as u',           'u.id',           'o.user_id')
+      .join('order_items as oi',    'oi.order_id',    'o.id')
+      .join('products as p',        'p.id',           'oi.product_id')
+      .join('categories as c',      'c.id',           'p.category_id')
+      .leftJoin('payments as pay',  'pay.order_id',   'o.id')
+      .select(
+        'o.id           as order_id',
+        'o.user_id',
+        'o.status',
+        'o.total        as order_total',
+        'o.created_at   as order_created_at',
+        'u.email        as user_email',
+        'u.name         as user_name',
+        'oi.id          as item_id',
+        'oi.product_id',
+        'oi.quantity',
+        'oi.unit_price',
+        'p.name         as product_name',
+        'c.name         as category_name',
+        'pay.id         as pay_id',
+        'pay.amount     as pay_amount',
+        'pay.status     as pay_status',
+        'pay.paid_at    as pay_paid_at',
+      )
+      .orderBy('o.created_at', 'desc')
+      .orderBy('oi.id')
+
+    return this.aggregateOrderRows(rows)
+  }
+
+  private aggregateOrderRows(rows: TopOrderRow[]): OrderWithItems[] {
+    const map = new Map<number, OrderWithItems>()
+
+    for (const row of rows) {
+      if (!map.has(row.order_id)) {
+        const payment: Payment | null = row.pay_id !== null
+          ? {
+              id:       row.pay_id,
+              order_id: row.order_id,
+              amount:   row.pay_amount ?? '0',
+              status:   row.pay_status ?? 'pending',
+              paid_at:  row.pay_paid_at,
+            }
+          : null
+
+        map.set(row.order_id, {
+          order: {
+            id:         row.order_id,
+            user_id:    row.user_id,
+            status:     row.status,
+            total:      row.order_total,
+            created_at: row.order_created_at,
+          },
+          user: {
+            id:    row.user_id,
+            email: row.user_email,
+            name:  row.user_name,
+          },
+          items:   [],
+          payment,
+        })
+      }
+
+      map.get(row.order_id)!.items.push({
+        id:            row.item_id,
+        order_id:      row.order_id,
+        product_id:    row.product_id,
+        quantity:      row.quantity,
+        unit_price:    row.unit_price,
+        product_name:  row.product_name,
+        category_name: row.category_name,
+      })
+    }
+
+    return [...map.values()]
+  }
+
+  // ------------------------------------------------------------------
+  // Analytics
+  // ------------------------------------------------------------------
+
+  async getProductSalesReport(): Promise<ProductSalesReport[]> {
+    return this.db('categories as c')
+      .select(
+        'c.id   as category_id',
+        'c.name as category_name',
+        this.db.raw('COUNT(DISTINCT p.id)::int                                   AS product_count'),
+        this.db.raw('ROUND(AVG(p.price), 2)::text                                AS avg_price'),
+        this.db.raw('COALESCE(SUM(p.stock), 0)::int                              AS total_stock'),
+        this.db.raw('COUNT(DISTINCT oi.order_id)::int                            AS orders_count'),
+        this.db.raw('COALESCE(SUM(oi.quantity * oi.unit_price), 0)::text         AS revenue'),
+      )
+      .leftJoin('products as p',     'p.category_id', 'c.id')
+      .leftJoin('order_items as oi', 'oi.product_id', 'p.id')
+      .groupBy('c.id', 'c.name')
+      .orderByRaw('COALESCE(SUM(oi.quantity * oi.unit_price), 0) DESC')
+  }
+
+  async getMonthlyRevenueTrend(months: number): Promise<MonthlyRevenue[]> {
+    const result = await this.db.raw<{ rows: MonthlyRevenue[] }>(
+      `WITH monthly AS (
+         SELECT
+           EXTRACT(YEAR  FROM created_at)::int AS year,
+           EXTRACT(MONTH FROM created_at)::int AS month,
+           COUNT(*)::int                        AS order_count,
+           SUM(total)::text                     AS revenue
+         FROM orders
+         WHERE created_at >= NOW() - INTERVAL '1 month' * ?
+         GROUP BY year, month
+       )
+       SELECT
+         year, month, order_count, revenue,
+         SUM(revenue::numeric) OVER (ORDER BY year, month)::text AS running_total
+       FROM monthly
+       ORDER BY year, month`,
+      [months]
+    )
+    return result.rows
+  }
+
+  // ------------------------------------------------------------------
   // Write
   // ------------------------------------------------------------------
 
@@ -154,9 +305,7 @@ export class QueryBuilderAdapter implements DbAdapter {
   ): Promise<number> {
     if (data.length === 0) return 0
     const rows = data.map(d => ({ category_id: d.categoryId, name: d.name, price: d.price, stock: d.stock }))
-    // knex returns inserted rows with .returning(); rowCount is in the array length
     const result = await this.db('products').insert(rows)
-    // pg driver: result is an array of row counts or row objects depending on returning()
     return Array.isArray(result) ? result.length : (result as unknown as { rowCount: number }).rowCount ?? data.length
   }
 
@@ -180,6 +329,40 @@ export class QueryBuilderAdapter implements DbAdapter {
       await trx('payments').insert({ order_id: order.id, amount: data.paymentAmount, status: 'pending' })
 
       return order
+    })
+  }
+
+  // ------------------------------------------------------------------
+  // Write – bulk transactional (batch INSERT vs Prisma's per-row INSERT)
+  // ------------------------------------------------------------------
+
+  async bulkCreateOrders(orders: NewOrderInput[]): Promise<Order[]> {
+    if (orders.length === 0) return []
+    return this.db.transaction(async trx => {
+      const results: Order[] = []
+
+      for (const data of orders) {
+        const [order] = await trx<Order>('orders')
+          .insert({ user_id: data.userId, status: 'pending', total: String(data.paymentAmount) })
+          .returning(['id', 'user_id', 'status', 'total', 'created_at'])
+
+        if (data.items.length > 0) {
+          await trx('order_items').insert(
+            data.items.map(it => ({
+              order_id:   order.id,
+              product_id: it.productId,
+              quantity:   it.quantity,
+              unit_price: it.unitPrice,
+            }))
+          )
+        }
+
+        await trx('payments').insert({ order_id: order.id, amount: data.paymentAmount, status: 'pending' })
+
+        results.push(order)
+      }
+
+      return results
     })
   }
 

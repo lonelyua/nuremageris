@@ -23,14 +23,25 @@ export interface BenchCase {
 // Case definitions
 // ------------------------------------------------------------------
 
+// Helpers
+const makeOrderInput = (userId: number, itemCount: number, baseProductId: number): NewOrderInput => ({
+  userId,
+  items: Array.from({ length: itemCount }, (_, i) => ({
+    productId: ((baseProductId + i) % 100) + 1, // cycle through first 100 products
+    quantity:  (i % 5) + 1,
+    unitPrice: Math.round(((i + 1) * 7.99) * 100) / 100,
+  })),
+  paymentAmount: Math.round(itemCount * 15.5 * 100) / 100,
+});
+
 export const cases: BenchCase[] = [
-  // ── Read simple ──────────────────────────────────────────────────
+  // ── Baseline simple (kept for reference) ─────────────────────────
 
   {
     name: "findUserById",
-    description: "PK lookup - SELECT by id",
+    description: "Baseline: PK lookup – SELECT by id (single indexed read)",
     async setup(_adapter, ctx) {
-      ctx.userId = 500; // assumes seeded data has at least 500 users
+      ctx.userId = 500;
     },
     async run(adapter, ctx) {
       return adapter.findUserById(ctx.userId as number);
@@ -38,16 +49,8 @@ export const cases: BenchCase[] = [
   },
 
   {
-    name: "findUserByEmail",
-    description: "Lookup by indexed email field",
-    async run(adapter) {
-      return adapter.findUserByEmail("user_500@example.com");
-    },
-  },
-
-  {
     name: "listUsers_paged",
-    description: "Paginated list – page 1, 20 rows, ORDER BY created_at DESC",
+    description: "Baseline: paginated list – LIMIT 20, ORDER BY created_at DESC",
     async run(adapter) {
       return adapter.listUsers(
         {},
@@ -57,107 +60,112 @@ export const cases: BenchCase[] = [
     },
   },
 
-  {
-    name: "listUsers_filtered",
-    description: "Paginated list with ILIKE name filter",
-    async run(adapter) {
-      return adapter.listUsers(
-        { search: "an" },
-        { field: "name", dir: "asc" },
-        { page: 1, limit: 20 }
-      );
-    },
-  },
-
-  // ── Read medium ──────────────────────────────────────────────────
+  // ── Read – medium: multi-query vs ORM include ─────────────────────
 
   {
     name: "getOrderWithDetails",
-    description: "JOIN orders + users + order_items + products (3 tables)",
+    description:
+      "2-query read: order+user then items+products (raw/knex/dal) vs " +
+      "Prisma 4-query include (orders→users→order_items→products)",
     async run(adapter) {
       return adapter.getOrderWithDetails(100);
     },
   },
 
   {
-    name: "getUserOrderTotals",
-    description: "Aggregation – SUM total per user with GROUP BY",
+    name: "batchGetUsers_500",
+    description:
+      "Batch fetch 500 users: raw uses ANY($1::int[]) (1 param) vs " +
+      "knex/dal/orm generate IN($1…$500) (500 params) – query parse overhead",
     async run(adapter) {
-      return adapter.getUserOrderTotals(50);
-    },
-  },
-
-  // ── Read heavy ───────────────────────────────────────────────────
-
-  {
-    name: "getLastOrderPerUser",
-    description: "CTE + ROW_NUMBER – Top-1 order per user",
-    async run(adapter) {
-      return adapter.getLastOrderPerUser(50);
-    },
-  },
-
-  {
-    name: "batchGetUsers",
-    description: "Batch fetch – WHERE id IN (...) for 100 ids",
-    async run(adapter) {
-      const ids = Array.from({ length: 100 }, (_, i) => i + 1);
+      const ids = Array.from({ length: 500 }, (_, i) => i + 1);
       return adapter.batchGetUsers(ids);
     },
   },
 
-  // ── Write ────────────────────────────────────────────────────────
+  // ── Read – heavy: single JOIN vs N round-trips ────────────────────
 
   {
-    name: "insertOneUser",
-    description: "Single INSERT INTO users RETURNING",
+    name: "getTopOrdersWithItems",
+    description:
+      "20 orders with full hierarchy (user + items + products + categories + payment): " +
+      "raw/knex/dal → 1 JOIN query; orm (Prisma include) → 6 separate SELECT queries + JS merge. " +
+      "Under concurrency Prisma holds pool connections 6× longer.",
     async run(adapter) {
-      const ts = Date.now();
-      return adapter.insertOneUser({
-        email: `bench_${ts}@test.com`,
-        name: `Bench ${ts}`,
-      });
+      return adapter.getTopOrdersWithItems(20);
+    },
+  },
+
+  // ── Analytics ─────────────────────────────────────────────────────
+
+  {
+    name: "getProductSalesReport",
+    description:
+      "Category analytics: GROUP BY + COUNT DISTINCT + SUM across " +
+      "categories→products→order_items. All adapters hit the same SQL path; " +
+      "shows $queryRaw overhead (Prisma) vs direct pool (raw) under concurrency.",
+    async run(adapter) {
+      return adapter.getProductSalesReport();
     },
   },
 
   {
-    name: "insertManyProducts_100",
-    description: "Bulk INSERT 100 rows in one statement",
+    name: "getMonthlyRevenueTrend",
+    description:
+      "CTE + window function (SUM OVER): rolling 12-month revenue with running total. " +
+      "Prisma uses $queryRaw; knex/dal use db.raw(); raw uses pool.query() directly.",
     async run(adapter) {
-      const rows = Array.from({ length: 100 }, (_, i) => ({
-        categoryId: 1,
-        name: `BenchProduct_${Date.now()}_${i}`,
-        price: Math.random() * 100,
-        stock: 50,
-      }));
-      return adapter.insertManyProducts(rows);
+      return adapter.getMonthlyRevenueTrend(12);
     },
   },
+
+  // ── Write – single transaction with many items ────────────────────
 
   {
     name: "createOrderWithItems",
-    description: "Transactional write – order + 3 items + payment",
+    description:
+      "Transaction: 1 order + 15 items (batch) + 1 payment. " +
+      "raw/knex/dal → 1 batch INSERT for items (1 round-trip); " +
+      "Prisma → 15 individual INSERT per item (15× more round-trips inside transaction).",
     async run(adapter) {
-      const data: NewOrderInput = {
-        userId: 1,
-        items: [
-          { productId: 1, quantity: 2, unitPrice: 9.99 },
-          { productId: 2, quantity: 1, unitPrice: 24.99 },
-          { productId: 3, quantity: 3, unitPrice: 4.5 },
-        ],
-        paymentAmount: 59.47,
-      };
-      return adapter.createOrderWithItems(data);
+      return adapter.createOrderWithItems(makeOrderInput(1, 15, 1));
     },
   },
 
-  // ── Update / Delete ───────────────────────────────────────────────
+  // ── Write – bulk transaction (maximum write overhead delta) ───────
 
   {
-    name: "updateOrderStatus",
-    description: "UPDATE single row by PK",
+    name: "bulkCreateOrders",
+    description:
+      "5 orders × 10 items each in a single transaction (+ 5 payments). " +
+      "raw/knex/dal → 5 batch INSERTs = 15 statements total; " +
+      "Prisma → 5×10 individual item INSERTs = 60 statements total (4× more). " +
+      "Most discriminating write case under concurrency.",
     async run(adapter) {
-      return adapter.updateOrderStatus(1, "shipped");
+      const orders = Array.from({ length: 5 }, (_, i) =>
+        makeOrderInput((i % 200) + 1, 10, i * 10)
+      );
+      return adapter.bulkCreateOrders(orders);
+    },
+  },
+
+  // ── Write – bulk INSERT throughput ───────────────────────────────
+
+  {
+    name: "insertManyProducts_500",
+    description:
+      "Bulk INSERT 500 product rows in one statement. " +
+      "raw → single multi-value INSERT with 2000 params (manual placeholder generation); " +
+      "knex/dal → knex batch insert (same SQL, different param handling); " +
+      "Prisma createMany → single INSERT. JS overhead of building 2000 params is measurable.",
+    async run(adapter) {
+      const rows = Array.from({ length: 500 }, (_, i) => ({
+        categoryId: (i % 5) + 1,
+        name:       `BenchProd_${Date.now()}_${i}`,
+        price:      Math.round(((i + 1) * 3.99) * 100) / 100,
+        stock:      50,
+      }));
+      return adapter.insertManyProducts(rows);
     },
   },
 ];

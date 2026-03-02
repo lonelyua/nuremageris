@@ -4,8 +4,9 @@ import { UserRepository }    from './repositories/UserRepository'
 import { OrderRepository }   from './repositories/OrderRepository'
 import { ProductRepository } from './repositories/ProductRepository'
 import type {
-  DbAdapter, User, OrderWithDetails, UserOrderTotal, LastOrderPerUser,
+  DbAdapter, User, OrderWithDetails, OrderWithItems, UserOrderTotal, LastOrderPerUser,
   Order, ListUsersFilters, SortOptions, PageOptions, NewOrderInput,
+  ProductSalesReport, MonthlyRevenue,
 } from '../../types'
 
 // Data Access Layer adapter — repository pattern on top of knex.
@@ -76,6 +77,26 @@ export class DataAccessLayerAdapter implements DbAdapter {
   }
 
   // ------------------------------------------------------------------
+  // Read – deep join
+  // ------------------------------------------------------------------
+
+  getTopOrdersWithItems(limit: number): Promise<OrderWithItems[]> {
+    return this.orders.findTopWithItems(limit)
+  }
+
+  // ------------------------------------------------------------------
+  // Analytics
+  // ------------------------------------------------------------------
+
+  getProductSalesReport(): Promise<ProductSalesReport[]> {
+    return this.products.getSalesReport()
+  }
+
+  getMonthlyRevenueTrend(months: number): Promise<MonthlyRevenue[]> {
+    return this.orders.getMonthlyRevenueTrend(months)
+  }
+
+  // ------------------------------------------------------------------
   // Write
   // ------------------------------------------------------------------
 
@@ -91,6 +112,14 @@ export class DataAccessLayerAdapter implements DbAdapter {
 
   createOrderWithItems(data: NewOrderInput): Promise<Order> {
     return this.orders.createWithItems(data)
+  }
+
+  // ------------------------------------------------------------------
+  // Write – bulk transactional
+  // ------------------------------------------------------------------
+
+  bulkCreateOrders(orders: NewOrderInput[]): Promise<Order[]> {
+    return this.orders.bulkCreate(orders)
   }
 
   // ------------------------------------------------------------------

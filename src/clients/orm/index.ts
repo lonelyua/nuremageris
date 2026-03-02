@@ -1,8 +1,9 @@
 import { PrismaClient, Prisma } from '@prisma/client'
 import { dbConfig } from '../../../configs/db'
 import type {
-  DbAdapter, User, OrderWithDetails, UserOrderTotal, LastOrderPerUser,
+  DbAdapter, User, OrderWithDetails, OrderWithItems, UserOrderTotal, LastOrderPerUser,
   Order, ListUsersFilters, SortOptions, PageOptions, NewOrderInput,
+  ProductSalesReport, MonthlyRevenue,
 } from '../../types'
 
 const ALLOWED_SORT_FIELDS = new Set(['id', 'name', 'email', 'created_at'])
@@ -127,6 +128,100 @@ export class PrismaAdapter implements DbAdapter {
   }
 
   // ------------------------------------------------------------------
+  // Read – deep join (Prisma generates 6 separate SELECT queries;
+  //         raw/knex/dal use a single JOIN query — key differentiator)
+  // ------------------------------------------------------------------
+
+  async getTopOrdersWithItems(limit: number): Promise<OrderWithItems[]> {
+    const orders = await this.prisma.order.findMany({
+      take:    limit,
+      orderBy: { created_at: 'desc' },
+      include: {
+        user:  { select: { id: true, email: true, name: true } },
+        items: {
+          include: {
+            product: {
+              include: { category: { select: { name: true } } },
+            },
+          },
+        },
+        payment: true,
+      },
+    })
+
+    return orders.map(o => ({
+      order: {
+        id:         o.id,
+        user_id:    o.user_id,
+        status:     o.status,
+        total:      o.total.toString(),
+        created_at: o.created_at,
+      },
+      user: o.user,
+      items: o.items.map(it => ({
+        id:            it.id,
+        order_id:      it.order_id,
+        product_id:    it.product_id,
+        quantity:      it.quantity,
+        unit_price:    it.unit_price.toString(),
+        product_name:  it.product.name,
+        category_name: it.product.category.name,
+      })),
+      payment: o.payment
+        ? {
+            id:       o.payment.id,
+            order_id: o.payment.order_id,
+            amount:   o.payment.amount.toString(),
+            status:   o.payment.status,
+            paid_at:  o.payment.paid_at,
+          }
+        : null,
+    }))
+  }
+
+  // ------------------------------------------------------------------
+  // Analytics (GROUP BY / window functions — all via $queryRaw)
+  // ------------------------------------------------------------------
+
+  async getProductSalesReport(): Promise<ProductSalesReport[]> {
+    return this.prisma.$queryRaw<ProductSalesReport[]>(Prisma.sql`
+      SELECT
+        c.id                                                         AS category_id,
+        c.name                                                       AS category_name,
+        COUNT(DISTINCT p.id)::int                                    AS product_count,
+        ROUND(AVG(p.price), 2)::text                                 AS avg_price,
+        COALESCE(SUM(p.stock), 0)::int                               AS total_stock,
+        COUNT(DISTINCT oi.order_id)::int                             AS orders_count,
+        COALESCE(SUM(oi.quantity * oi.unit_price), 0)::text          AS revenue
+      FROM categories c
+      LEFT JOIN products p     ON p.category_id = c.id
+      LEFT JOIN order_items oi ON oi.product_id = p.id
+      GROUP BY c.id, c.name
+      ORDER BY COALESCE(SUM(oi.quantity * oi.unit_price), 0) DESC
+    `)
+  }
+
+  async getMonthlyRevenueTrend(months: number): Promise<MonthlyRevenue[]> {
+    return this.prisma.$queryRaw<MonthlyRevenue[]>(Prisma.sql`
+      WITH monthly AS (
+        SELECT
+          EXTRACT(YEAR  FROM created_at)::int AS year,
+          EXTRACT(MONTH FROM created_at)::int AS month,
+          COUNT(*)::int                        AS order_count,
+          SUM(total)::text                     AS revenue
+        FROM orders
+        WHERE created_at >= NOW() - INTERVAL '1 month' * ${months}
+        GROUP BY year, month
+      )
+      SELECT
+        year, month, order_count, revenue,
+        SUM(revenue::numeric) OVER (ORDER BY year, month)::text AS running_total
+      FROM monthly
+      ORDER BY year, month
+    `)
+  }
+
+  // ------------------------------------------------------------------
   // Write
   // ------------------------------------------------------------------
 
@@ -177,6 +272,48 @@ export class PrismaAdapter implements DbAdapter {
       total:      row.total.toString(),
       created_at: row.created_at,
     }
+  }
+
+  // ------------------------------------------------------------------
+  // Write – bulk transactional (per-row INSERT vs raw/knex batch INSERT)
+  // Prisma creates each order_item individually → N×items more round-trips
+  // ------------------------------------------------------------------
+
+  async bulkCreateOrders(orders: NewOrderInput[]): Promise<Order[]> {
+    if (orders.length === 0) return []
+    return this.prisma.$transaction(async trx => {
+      const results: Order[] = []
+
+      for (const data of orders) {
+        const row = await trx.order.create({
+          data: {
+            user_id: data.userId,
+            status:  'pending',
+            total:   data.paymentAmount,
+            items: {
+              create: data.items.map(it => ({
+                product_id: it.productId,
+                quantity:   it.quantity,
+                unit_price: it.unitPrice,
+              })),
+            },
+            payment: {
+              create: { amount: data.paymentAmount, status: 'pending' },
+            },
+          },
+        })
+
+        results.push({
+          id:         row.id,
+          user_id:    row.user_id,
+          status:     row.status,
+          total:      row.total.toString(),
+          created_at: row.created_at,
+        })
+      }
+
+      return results
+    })
   }
 
   // ------------------------------------------------------------------

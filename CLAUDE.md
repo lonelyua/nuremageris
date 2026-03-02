@@ -72,10 +72,27 @@ npm install
 npm run db:generate                 # generate Prisma client (required for orm adapter)
 npm run db:seed                     # SEED_SIZE=S|M|L
 npm run bench                       # all adapters, all cases
-npm run bench -- --adapter raw,knex,dal,orm --case findUserById,getOrderWithDetails
-npm run bench -- --warmup 10 --iterations 100 --out bench/reports
+npm run bench -- --adapter raw,knex,dal,orm --case getTopOrdersWithItems,bulkCreateOrders
+npm run bench -- --warmup 10 --iterations 100 --concurrency 10 --out bench/reports
 npm run typecheck
 ```
+
+## Benchmark cases (current)
+
+10 cases in 4 categories:
+
+| Case | Category | Key overhead delta |
+|------|----------|--------------------|
+| `findUserById` | Baseline | PK lookup reference |
+| `listUsers_paged` | Baseline | Pagination reference |
+| `getOrderWithDetails` | Read medium | 2 queries (raw/knex/dal) vs 4 queries (Prisma include) |
+| `batchGetUsers_500` | Read heavy | `ANY($1::int[])` 1 param vs `IN($1…$500)` 500 params |
+| `getTopOrdersWithItems` | **Read – key** | 1 JOIN query vs 6 separate SELECTs (Prisma) — amplified by concurrency |
+| `getProductSalesReport` | Analytics | GROUP BY + COUNT DISTINCT + SUM across categories→products→order_items |
+| `getMonthlyRevenueTrend` | Analytics | CTE + window function, 12-month rolling window |
+| `createOrderWithItems` | Write | 1 order + 15 items: 1 batch INSERT vs 15 individual INSERTs (Prisma) |
+| `bulkCreateOrders` | **Write – key** | 5 orders × 10 items: 15 stmts (raw/knex/dal) vs 60 stmts (Prisma) |
+| `insertManyProducts_500` | Write | Bulk INSERT 500 rows — query parse and param-build overhead |
 
 ## Adding a new adapter
 
@@ -93,5 +110,7 @@ Next planned adapters: `hybrid-orm` (Prisma + $queryRaw for heavy queries), `sto
 - Always use `$N` placeholders or knex bindings — never string concatenation for SQL params
 - Pool lifecycle: `close()` is called by the runner after all cases for an adapter are done
 - Default dataset size: `M` (10k users, ~2k products, ~5 orders/user)
-- Prisma `$queryRaw` is used for GROUP BY aggregation (`getUserOrderTotals`) and window functions (`getLastOrderPerUser`) — the fluent API does not support these patterns
+- Prisma `$queryRaw` is used for GROUP BY aggregation and window functions — the fluent API does not support these patterns
+- Prisma `include` does NOT generate JOINs — it issues separate SELECT per relation level; this is intentional and is the key differentiator for `getTopOrdersWithItems`
 - `DATABASE_URL` in `.env` is required for Prisma (format: `postgresql://user:pass@host:port/db`)
+- `bulkCreateOrders` uses 5 orders × 10 items; the concurrency multiplier makes the 15 vs 60 statement delta highly visible

@@ -58,6 +58,15 @@ export interface OrderWithDetails {
   items: Array<OrderItem & { product_name: string }>
 }
 
+/** Deep order view: items carry category name, payment attached.
+ *  Used by getTopOrdersWithItems – designed to expose JOIN vs N-query overhead. */
+export interface OrderWithItems {
+  order:   Order
+  user:    Pick<User, 'id' | 'email' | 'name'>
+  items:   Array<OrderItem & { product_name: string; category_name: string }>
+  payment: Payment | null
+}
+
 export interface UserOrderTotal {
   user_id:     number
   user_name:   string
@@ -71,6 +80,26 @@ export interface LastOrderPerUser {
   last_order_id:    number
   last_order_total: string
   last_order_at:    Date
+}
+
+/** Per-category sales analytics: product stats + revenue rolled up from order_items. */
+export interface ProductSalesReport {
+  category_id:   number
+  category_name: string
+  product_count: number
+  avg_price:     string
+  total_stock:   number
+  orders_count:  number
+  revenue:       string
+}
+
+/** Monthly revenue row with running cumulative total (window function). */
+export interface MonthlyRevenue {
+  year:          number
+  month:         number
+  order_count:   number
+  revenue:       string
+  running_total: string
 }
 
 // ============================================================
@@ -116,10 +145,20 @@ export interface DbAdapter {
   getLastOrderPerUser(limit?: number): Promise<LastOrderPerUser[]>
   batchGetUsers(ids: number[]): Promise<User[]>
 
+  // Read – deep join (exposes Prisma multi-query vs raw single JOIN)
+  getTopOrdersWithItems(limit: number): Promise<OrderWithItems[]>
+
+  // Analytics (GROUP BY, window functions)
+  getProductSalesReport(): Promise<ProductSalesReport[]>
+  getMonthlyRevenueTrend(months: number): Promise<MonthlyRevenue[]>
+
   // Write
   insertOneUser(data: { email: string; name: string }): Promise<User>
   insertManyProducts(data: Array<{ categoryId: number; name: string; price: number; stock: number }>): Promise<number>
   createOrderWithItems(data: NewOrderInput): Promise<Order>
+
+  // Write – bulk transactional (exposes batch INSERT vs per-row INSERT overhead)
+  bulkCreateOrders(orders: NewOrderInput[]): Promise<Order[]>
 
   // Update / Delete
   updateOrderStatus(orderId: number, status: string): Promise<boolean>
