@@ -37,6 +37,7 @@ function createAdapter(name: AdapterName): DbAdapter {
 const bold  = (s: string) => `\x1b[1m${s}\x1b[0m`
 const dim   = (s: string) => `\x1b[2m${s}\x1b[0m`
 const green = (s: string) => `\x1b[32m${s}\x1b[0m`
+const red   = (s: string) => `\x1b[31m${s}\x1b[0m`
 const hdr   = (s: string) => `\x1b[1m\x1b[96m${s}\x1b[0m`  // bold bright-cyan for table headers
 
 // ------------------------------------------------------------------
@@ -242,36 +243,51 @@ function printSummaryTable(results: RunResult[]): void {
     bestPerCase[c] = group.reduce((a, b) => a.mean < b.mean ? a : b).adapter
   }
 
+  const worstPerCase: Record<string, string> = {}
+  for (const c of caseOrder) {
+    const group = results.filter(r => r.case === c)
+    if (group.length > 1)
+      worstPerCase[c] = group.reduce((a, b) => a.mean > b.mean ? a : b).adapter
+  }
+
   // Case name is a full-width section header row; columns are adapter + metrics only
-  const COL_COUNT = 7
+  const COL_COUNT = 8
   const table = new CliTable3({
     head: [
       hdr('Adapter'),
-      hdr('mean ms'), hdr('p95 ms'), hdr('p99 ms'),
+      hdr('throughput'), hdr('mean ms'), hdr('p95 ms'), hdr('p99 ms'),
       hdr('heap avg/peak *'), hdr('cpu avg/peak *'),
       hdr('err'),
     ],
-    colWidths: [8, 10, 10, 10, 17, 17, 5],
+    colWidths: [8, 11, 10, 10, 10, 17, 17, 5],
     style: { head: [], border: [] },
   })
 
-  for (let ci = 0; ci < caseOrder.length; ci++) {
-    const caseName = caseOrder[ci]
-    const group    = results.filter(r => r.case === caseName)
+  for (const caseName of caseOrder) {
+    const group = results.filter(r => r.case === caseName)
 
     // Case name as a full-width section header
     table.push([{
-      colSpan:  COL_COUNT,
-      content:  `\x1b[1m\x1b[36m ${caseName}\x1b[0m`,
-      hAlign:   'left',
+      colSpan: COL_COUNT,
+      content: `\x1b[1m\x1b[36m ${caseName}\x1b[0m`,
+      hAlign:  'left',
     }])
 
     for (const r of group) {
-      const best = r.adapter === bestPerCase[caseName]
-      const hl   = best ? green : (s: string) => s
+      const isBest  = r.adapter === bestPerCase[caseName]
+      const isWorst = r.adapter === worstPerCase[caseName]
+      const hl      = isBest ? green : isWorst ? red : (s: string) => s
+
+      const rps     = r.mean > 0 ? (r.concurrency * 1000) / r.mean : 0
+      const throughput = rps >= 1000
+        ? `${(rps / 1000).toFixed(1)}k r/s`
+        : `${rps.toFixed(0)} r/s`
 
       table.push([
-        best ? `\x1b[1m\x1b[33m${r.adapter}\x1b[0m` : `\x1b[33m${r.adapter}\x1b[0m`,
+        isBest  ? `\x1b[1m\x1b[33m${r.adapter}\x1b[0m`
+        : isWorst ? `\x1b[2m\x1b[33m${r.adapter}\x1b[0m`
+        : `\x1b[33m${r.adapter}\x1b[0m`,
+        hl(throughput),
         hl(r.mean.toFixed(2)),
         hl(r.p95.toFixed(2)),
         hl(r.p99.toFixed(2)),

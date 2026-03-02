@@ -40,9 +40,8 @@ npm run db:seed
 # 6. run full benchmark (all 4 adapters)
 npm run bench
 
-# 7. run specific adapters / cases
-npm run bench -- --adapter raw --case getTopOrdersWithItems,bulkCreateOrders
-npm run bench -- --adapter raw,knex,dal,orm --warmup 10 --iterations 100 --concurrency 10
+# 7. run specific adapters / cases / params
+npm run bench -- --adapter raw,orm --case getTopOrdersWithItems --warmup 10 --iterations 100 --concurrency 10
 ```
 
 ## Project structure
