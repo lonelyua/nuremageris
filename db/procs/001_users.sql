@@ -37,7 +37,7 @@ DECLARE
   v_sort_dir text := CASE WHEN p_sort_dir = 'desc' THEN 'DESC' ELSE 'ASC' END;
 BEGIN
   RETURN QUERY EXECUTE format(
-    'SELECT id, email, name, created_at
+    'SELECT id, email::text, name::text, created_at
      FROM users
      WHERE ($1 IS NULL OR name ILIKE ''%%'' || $1 || ''%%'')
        AND ($2 IS NULL OR created_at > $2)

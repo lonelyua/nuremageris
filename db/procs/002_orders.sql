@@ -174,7 +174,7 @@ BEGIN
   VALUES (v_order_id, p_payment_amount, 'pending');
 
   RETURN QUERY
-    SELECT o.id, o.user_id, o.status, o.total::text, o.created_at
+    SELECT o.id, o.user_id, o.status::text, o.total::text, o.created_at
     FROM orders o WHERE o.id = v_order_id;
 END;
 $$;
@@ -214,7 +214,7 @@ BEGIN
     );
 
     RETURN QUERY
-      SELECT o.id, o.user_id, o.status, o.total::text, o.created_at
+      SELECT o.id, o.user_id, o.status::text, o.total::text, o.created_at
       FROM orders o WHERE o.id = v_order_id;
   END LOOP;
 END;
