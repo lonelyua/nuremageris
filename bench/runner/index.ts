@@ -124,7 +124,8 @@ async function runCase(
   adapterName: string,
   warmup: number,
   iterations: number,
-  concurrency: number
+  concurrency: number,
+  verbose = false
 ): Promise<RunResult> {
   const bench = caseMap[caseName];
   if (!bench) throw new Error(`Unknown case: ${caseName}`);
@@ -180,8 +181,13 @@ async function runCase(
         const t0 = performance.now();
         try {
           await bench.run(adapter, ctx);
-        } catch {
+        } catch (err) {
           errors++;
+          if (verbose && errors <= 3) {
+            process.stderr.write(
+              `\n  [verbose] error #${errors} in ${caseName}: ${err instanceof Error ? err.message : String(err)}\n`
+            );
+          }
         }
         return performance.now() - t0;
       })
@@ -429,7 +435,8 @@ async function main() {
       String(benchConfig.concurrency)
     )
     .option("--out <dir>", "Output directory for JSON/CSV", "bench/reports")
-    .option("--report", "Write JSON and CSV report files to --out directory");
+    .option("--report", "Write JSON and CSV report files to --out directory")
+    .option("--verbose", "Print first 3 error messages per case to stderr");
 
   program.parse(process.argv);
   const opts = program.opts<{
@@ -440,6 +447,7 @@ async function main() {
     concurrency: string;
     out: string;
     report?: boolean;
+    verbose?: boolean;
   }>();
 
   const adapterNames = opts.adapter
@@ -453,6 +461,7 @@ async function main() {
   const concurrency = Number(opts.concurrency);
   const outDir = opts.out;
   const writeReport = opts.report ?? false;
+  const verbose = opts.verbose ?? false;
 
   for (const a of adapterNames) {
     if (!ADAPTER_NAMES.includes(a)) {
@@ -500,7 +509,8 @@ async function main() {
           adapterName,
           warmup,
           iterations,
-          concurrency
+          concurrency,
+          verbose
         );
         allResults.push(result);
       }
