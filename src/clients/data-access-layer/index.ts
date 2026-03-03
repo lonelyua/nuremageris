@@ -29,7 +29,12 @@ export class DataAccessLayerAdapter implements DbAdapter {
         user:     dbConfig.user,
         password: dbConfig.password,
       },
-      pool: { min: dbConfig.pool.min, max: dbConfig.pool.max },
+      pool: {
+        min:                  dbConfig.pool.min,
+        max:                  dbConfig.pool.max,
+        acquireTimeoutMillis: dbConfig.pool.connectionTimeoutMs,
+        idleTimeoutMillis:    dbConfig.pool.idleTimeoutMs,
+      },
     })
     this.users    = new UserRepository(this.db)
     this.orders   = new OrderRepository(this.db)

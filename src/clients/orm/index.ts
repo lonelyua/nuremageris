@@ -12,7 +12,15 @@ export class PrismaAdapter implements DbAdapter {
   private readonly prisma: PrismaClient
 
   constructor() {
-    const url = `postgresql://${dbConfig.user}:${dbConfig.password}@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}`
+    // Prisma pool params are passed via URL query string (values in seconds).
+    // connection_limit = max pool size; pool_timeout = wait for free connection.
+    // There is no idle_timeout in Prisma's connection URL — it manages idle
+    // connections internally and does not expose that knob.
+    const poolTimeout = Math.max(1, Math.ceil(dbConfig.pool.connectionTimeoutMs / 1000))
+    const url =
+      `postgresql://${dbConfig.user}:${dbConfig.password}` +
+      `@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}` +
+      `?connection_limit=${dbConfig.pool.max}&pool_timeout=${poolTimeout}`
     this.prisma = new PrismaClient({ log: [], datasources: { db: { url } } })
   }
 

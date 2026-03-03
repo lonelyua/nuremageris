@@ -42,7 +42,12 @@ export class QueryBuilderAdapter implements DbAdapter {
         user:     dbConfig.user,
         password: dbConfig.password,
       },
-      pool: { min: dbConfig.pool.min, max: dbConfig.pool.max },
+      pool: {
+        min:                  dbConfig.pool.min,
+        max:                  dbConfig.pool.max,
+        acquireTimeoutMillis: dbConfig.pool.connectionTimeoutMs,
+        idleTimeoutMillis:    dbConfig.pool.idleTimeoutMs,
+      },
     })
   }
 

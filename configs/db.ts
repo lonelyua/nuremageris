@@ -7,7 +7,9 @@ export const dbConfig = {
   user:     process.env.PG_USER     ?? 'bench',
   password: process.env.PG_PASSWORD ?? 'bench',
   pool: {
-    min: Number(process.env.PG_POOL_MIN ?? 2),
-    max: Number(process.env.PG_POOL_MAX ?? 10),
+    min:                 Number(process.env.PG_POOL_MIN                  ?? 2),
+    max:                 Number(process.env.PG_POOL_MAX                  ?? 10),
+    connectionTimeoutMs: Number(process.env.PG_POOL_CONNECTION_TIMEOUT_MS ?? 5000),
+    idleTimeoutMs:       Number(process.env.PG_POOL_IDLE_TIMEOUT_MS       ?? 30000),
   },
 }

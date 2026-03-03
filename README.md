@@ -117,13 +117,17 @@ The cases are selected to amplify three classes of overhead:
 --warmup       5                   warm-up iterations before measuring
 --iterations   50                  measured iterations
 --concurrency  5                   parallel requests per iteration
---out          bench/reports       output directory
+--out          bench/reports       output directory for report files (requires --report)
+--report                           write JSON + CSV report files to --out directory
 ```
 
 Increasing `--concurrency` amplifies the round-trip delta between adapters: Prisma's multi-query
 approach holds pool connections longer, saturating the pool faster than single-query raw SQL.
 
 ## Output
+
+By default the runner prints the summary table to stdout only. Pass `--report` to also persist
+results to disk:
 
 - `bench/reports/results_<ts>.json` — full result objects per case (includes raw `timings_ms[]` array)
 - `bench/reports/summary_<ts>.csv` — aggregated stats per case per adapter:

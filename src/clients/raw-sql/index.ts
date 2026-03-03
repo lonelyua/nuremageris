@@ -34,13 +34,15 @@ export class RawSqlAdapter implements DbAdapter {
 
   constructor() {
     this.pool = new Pool({
-      host:     dbConfig.host,
-      port:     dbConfig.port,
-      database: dbConfig.database,
-      user:     dbConfig.user,
-      password: dbConfig.password,
-      min:      dbConfig.pool.min,
-      max:      dbConfig.pool.max,
+      host:                    dbConfig.host,
+      port:                    dbConfig.port,
+      database:                dbConfig.database,
+      user:                    dbConfig.user,
+      password:                dbConfig.password,
+      min:                     dbConfig.pool.min,
+      max:                     dbConfig.pool.max,
+      connectionTimeoutMillis: dbConfig.pool.connectionTimeoutMs,
+      idleTimeoutMillis:       dbConfig.pool.idleTimeoutMs,
     })
   }
 
