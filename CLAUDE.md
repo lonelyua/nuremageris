@@ -9,8 +9,8 @@ Compare latency and throughput of the following access methods on identical scen
 - `knex` — query builder
 - `dal` — Data Access Layer / Repository pattern on top of knex (`UserRepository`, `OrderRepository`, `ProductRepository`)
 - `orm` — Prisma 5 (fluent API + `$queryRaw` for window functions / GROUP BY)
-- `hybrid-orm` — ORM + raw SQL for heavy queries (planned)
-- `stored-proc` — stored procedure calls (planned)
+- `hybrid` — Prisma for CRUD reads/mutations + `pg` Pool for complex queries and all write transactions
+- `stored-proc` — all `DbAdapter` methods delegate to PL/pgSQL functions (`sp_*`); no SQL in application code
 
 ## Key architectural decisions
 
@@ -37,8 +37,11 @@ Raw timings are stored in JSON; aggregates go to CSV (for diploma tables).
 
 ```
 configs/          db.ts (connection config), bench.ts (sizes, warmup)
-db/schema/        SQL schema — applied by Docker on first start
-db/seed/          seed.ts — S/M/L dataset generation
+db/
+  schema/         001_schema.sql — tables + indexes (auto-applied by Docker on first start)
+  procs/          001_users.sql, 002_orders.sql, 003_analytics.sql — stored functions
+                  apply.ts — applies all *.sql files idempotently (npm run db:procs)
+  seed/           seed.ts — S/M/L dataset generation
 src/types.ts      Domain types + DbAdapter interface
 src/clients/
   raw-sql/        RawSqlAdapter — pg Pool, plain $N SQL
@@ -47,6 +50,8 @@ src/clients/
     repositories/ UserRepository, OrderRepository, ProductRepository (knex under the hood)
     index.ts      DataAccessLayerAdapter — delegates to repositories
   orm/            PrismaAdapter — Prisma 5; $queryRaw for GROUP BY / window functions
+  hybrid-orm/     HybridAdapter — Prisma for CRUD; pg Pool for heavy reads, analytics, all writes
+  stored-proc/    StoredProcAdapter — pg Pool; delegates every call to sp_* PL/pgSQL functions
 prisma/           schema.prisma — mirrors 001_schema.sql; run `npm run db:generate` before use
 bench/cases/      Case definitions (BenchCase[])
 bench/runner/     CLI runner, stats helpers, CSV serialisation
@@ -69,11 +74,12 @@ and recreate the container with `docker compose down -v && docker compose up -d`
 cp .env.example .env
 docker compose up -d
 npm install
-npm run db:generate                 # generate Prisma client (required for orm adapter)
+npm run db:generate                 # generate Prisma client (required for orm / hybrid adapters)
+npm run db:procs                    # apply stored functions (required for stored-proc adapter)
 npm run db:seed                     # SEED_SIZE=S|M|L
 npm run bench                       # all adapters, all cases
-npm run bench -- --adapter raw,knex,dal,orm --case getTopOrdersWithItems,bulkCreateOrders
-npm run bench -- --warmup 10 --iterations 100 --concurrency 10 --out bench/reports
+npm run bench -- --adapter raw,knex,dal,orm,hybrid,stored-proc --case getTopOrdersWithItems,bulkCreateOrders
+npm run bench -- --warmup 10 --iterations 100 --concurrency 10 --verbose
 npm run typecheck
 ```
 
@@ -100,8 +106,6 @@ npm run typecheck
 2. Register in `bench/runner/index.ts`: add to `AdapterName`, `createAdapter()`, and `ADAPTER_NAMES`
 3. Run `npm run bench -- --adapter <name>`
 
-Next planned adapters: `hybrid-orm` (Prisma + $queryRaw for heavy queries), `stored-proc` (PostgreSQL stored procedures).
-
 ## Conventions
 
 - TypeScript strict mode, no `any`
@@ -114,3 +118,6 @@ Next planned adapters: `hybrid-orm` (Prisma + $queryRaw for heavy queries), `sto
 - Prisma `include` does NOT generate JOINs — it issues separate SELECT per relation level; this is intentional and is the key differentiator for `getTopOrdersWithItems`
 - `DATABASE_URL` in `.env` is required for Prisma (format: `postgresql://user:pass@host:port/db`)
 - `bulkCreateOrders` uses 5 orders × 10 items; the concurrency multiplier makes the 15 vs 60 statement delta highly visible
+- `hybrid` adapter: Prisma handles `findUserById`, `findUserByEmail`, `listUsers`, `insertOneUser`, `updateOrderStatus`, `deleteOrder`; all heavy reads, analytics, and writes go through pg Pool directly (transactions stay in raw pg to guarantee ACID on a single connection)
+- `stored-proc` adapter: every `DbAdapter` method calls a `sp_*` PostgreSQL function; no SQL text in Node code; write functions (`sp_create_order_with_items`, `sp_bulk_create_orders`) execute `BEGIN/INSERT.../COMMIT` inside PL/pgSQL — 1 network round-trip per transaction
+- PL/pgSQL `RETURN QUERY`: must cast `VARCHAR(n)` columns to `text` explicitly (e.g. `o.status::text`) — PostgreSQL checks types strictly at runtime for `RETURN QUERY`, unlike SQL-language functions which coerce implicitly at parse time

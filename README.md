@@ -68,7 +68,16 @@ nuremageris/
 │       ├── raw-sql/          pg adapter
 │       ├── query-builder/    knex adapter
 │       ├── data-access-layer/  repository pattern (UserRepository, OrderRepository, ProductRepository) over knex
-│       └── orm/              Prisma adapter
+│       ├── orm/              Prisma adapter
+│       ├── hybrid-orm/       Prisma for CRUD + pg Pool for heavy queries and writes
+│       └── stored-proc/      pg Pool; all operations delegate to sp_* PL/pgSQL functions
+├── db/
+│   ├── procs/
+│   │   ├── 001_users.sql    user functions (sp_find_user_by_id, sp_list_users_paged, …)
+│   │   ├── 002_orders.sql   order functions (sp_get_top_orders_with_items, sp_bulk_create_orders, …)
+│   │   ├── 003_analytics.sql  analytics functions (sp_get_product_sales_report, sp_get_monthly_revenue_trend)
+│   │   └── apply.ts         applies all *.sql files in order (idempotent, CREATE OR REPLACE)
+│   └── schema/002_procs.sh  auto-applies procs on fresh Docker container start
 ├── prisma/
 │   └── schema.prisma    Prisma schema (mirrors 001_schema.sql)
 └── bench/
@@ -125,6 +134,7 @@ The cases are selected to amplify three classes of overhead:
 --concurrency  5                   parallel requests per iteration
 --out          bench/reports       output directory for report files (requires --report)
 --report                           write JSON + CSV report files to --out directory
+--verbose                          print first 3 error messages per case to stderr
 ```
 
 Increasing `--concurrency` amplifies the round-trip delta between adapters: Prisma's multi-query
