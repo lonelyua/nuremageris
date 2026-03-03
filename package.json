@@ -6,6 +6,7 @@
   "author": "lonelyua",
   "scripts": {
     "db:seed": "tsx db/seed/seed.ts",
+    "db:procs": "tsx db/procs/apply.ts",
     "db:generate": "prisma generate",
     "bench": "tsx bench/runner/index.ts",
     "typecheck": "tsc --noEmit"

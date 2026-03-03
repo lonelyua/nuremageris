@@ -9,6 +9,7 @@ import { QueryBuilderAdapter } from "../../src/clients/query-builder";
 import { DataAccessLayerAdapter } from "../../src/clients/data-access-layer";
 import { PrismaAdapter } from "../../src/clients/orm";
 import { HybridAdapter } from "../../src/clients/hybrid-orm";
+import { StoredProcAdapter } from "../../src/clients/stored-proc";
 import { benchConfig } from "../../configs/bench";
 import { cases, caseMap, CaseContext } from "../cases";
 import type { DbAdapter } from "../../src/types";
@@ -17,9 +18,9 @@ import type { DbAdapter } from "../../src/types";
 // Adapter registry
 // ------------------------------------------------------------------
 
-type AdapterName = "raw" | "knex" | "dal" | "orm" | "hybrid";
+type AdapterName = "raw" | "knex" | "dal" | "orm" | "hybrid" | "stored-proc";
 
-const ADAPTER_NAMES: AdapterName[] = ["raw", "knex", "dal", "orm", "hybrid"];
+const ADAPTER_NAMES: AdapterName[] = ["raw", "knex", "dal", "orm", "hybrid", "stored-proc"];
 
 function createAdapter(name: AdapterName): DbAdapter {
   switch (name) {
@@ -33,6 +34,8 @@ function createAdapter(name: AdapterName): DbAdapter {
       return new PrismaAdapter();
     case "hybrid":
       return new HybridAdapter();
+    case "stored-proc":
+      return new StoredProcAdapter();
     default:
       throw new Error(
         `Unknown adapter: ${name as string}. Valid: ${ADAPTER_NAMES.join(", ")}`

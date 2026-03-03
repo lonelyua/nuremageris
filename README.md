@@ -2,22 +2,24 @@
 
 Diploma project: PostgreSQL access-method performance benchmark.
 
-Compares latency and throughput of four data-access approaches across a common set of realistic
-read/write scenarios: raw SQL, query builder, repository/DAL, and ORM.
+Compares latency and throughput of five data-access approaches across a common set of realistic
+read/write scenarios: raw SQL, query builder, repository/DAL, ORM, ORM+raw hybrid, and stored procedures.
 
 ---
 
 ## Stack
 
-| Layer            | Tool                       |
-|------------------|----------------------------|
-| Database         | PostgreSQL 16 (Docker)     |
-| Runtime          | Node.js 20 + TypeScript    |
-| Raw SQL (`raw`)  | `pg` (node-postgres)       |
-| Query builder (`knex`) | `knex`               |
-| Repository/DAL (`dal`) | `knex` + repositories |
-| ORM (`orm`)      | Prisma 5                   |
-| Seed data        | `@faker-js/faker`          |
+| Layer                       | Tool                                    |
+|-----------------------------|-----------------------------------------|
+| Database                    | PostgreSQL 16 (Docker)                  |
+| Runtime                     | Node.js 20 + TypeScript                 |
+| Raw SQL (`raw`)             | `pg` (node-postgres)                    |
+| Query builder (`knex`)      | `knex`                                  |
+| Repository/DAL (`dal`)      | `knex` + repositories                   |
+| ORM (`orm`)                 | Prisma 5                                |
+| ORM+raw hybrid (`hybrid`)   | Prisma for CRUD, `pg` for heavy queries |
+| Stored procedures (`stored-proc`) | `pg` + PL/pgSQL functions in DB   |
+| Seed data                   | `@faker-js/faker`                       |
 
 ## Quick start
 
@@ -31,17 +33,21 @@ docker compose up -d
 # 3. install deps
 npm install
 
-# 4. generate Prisma client (required for orm adapter)
+# 4. generate Prisma client (required for orm / hybrid adapters)
 npm run db:generate
 
-# 5. seed (default size M = 10k users)
+# 5. apply stored procedure functions (required for stored-proc adapter)
+#    on a fresh container this also runs automatically via db/schema/002_procs.sh
+npm run db:procs
+
+# 6. seed (default size M = 10k users)
 npm run db:seed
 
-# 6. run full benchmark (all 4 adapters)
+# 7. run full benchmark (all adapters)
 npm run bench
 
-# 7. run specific adapters / cases / params
-npm run bench -- --adapter raw,orm --case getTopOrdersWithItems --warmup 10 --iterations 100 --concurrency 10
+# 8. run specific adapters / cases / params
+npm run bench -- --adapter raw,orm,hybrid,stored-proc --case getTopOrdersWithItems,bulkCreateOrders --warmup 10 --iterations 100 --concurrency 10
 ```
 
 ## Project structure

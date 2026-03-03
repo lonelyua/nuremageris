@@ -13,6 +13,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/schema:/docker-entrypoint-initdb.d
+      - ./db/procs:/docker-entrypoint-procs
     command:
       - "postgres"
       - "-c"
