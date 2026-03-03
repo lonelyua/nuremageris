@@ -8,6 +8,7 @@ import { RawSqlAdapter } from "../../src/clients/raw-sql";
 import { QueryBuilderAdapter } from "../../src/clients/query-builder";
 import { DataAccessLayerAdapter } from "../../src/clients/data-access-layer";
 import { PrismaAdapter } from "../../src/clients/orm";
+import { HybridAdapter } from "../../src/clients/hybrid-orm";
 import { benchConfig } from "../../configs/bench";
 import { cases, caseMap, CaseContext } from "../cases";
 import type { DbAdapter } from "../../src/types";
@@ -16,9 +17,9 @@ import type { DbAdapter } from "../../src/types";
 // Adapter registry
 // ------------------------------------------------------------------
 
-type AdapterName = "raw" | "knex" | "dal" | "orm";
+type AdapterName = "raw" | "knex" | "dal" | "orm" | "hybrid";
 
-const ADAPTER_NAMES: AdapterName[] = ["raw", "knex", "dal", "orm"];
+const ADAPTER_NAMES: AdapterName[] = ["raw", "knex", "dal", "orm", "hybrid"];
 
 function createAdapter(name: AdapterName): DbAdapter {
   switch (name) {
@@ -30,6 +31,8 @@ function createAdapter(name: AdapterName): DbAdapter {
       return new DataAccessLayerAdapter();
     case "orm":
       return new PrismaAdapter();
+    case "hybrid":
+      return new HybridAdapter();
     default:
       throw new Error(
         `Unknown adapter: ${name as string}. Valid: ${ADAPTER_NAMES.join(", ")}`
