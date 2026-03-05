@@ -71,6 +71,8 @@ export interface RunResult {
   min: number;
   max: number;
   errors: number;
+  /** Actual throughput: successful requests / total wall-clock measurement time */
+  throughput_rps: number;
   /** Average heap-used per concurrency step (KB) */
   mem_avg_kb: number;
   /** Peak heap-used across all steps (KB) */
@@ -169,6 +171,7 @@ async function runCase(
   const cpuPerStep: Array<{ us: number; n: number }> = [];
 
   let done = 0;
+  const tMeasureStart = performance.now();
   while (done < iterations) {
     const batchSize = Math.min(concurrency, iterations - done);
     bar.update(warmup + done, { phase: `${done}/${iterations}${conc}` });
@@ -205,12 +208,16 @@ async function runCase(
     done += batchSize;
   }
 
+  const tMeasureEnd = performance.now();
+
   bar.update(totalSteps, { phase: "done" });
   bar.stop(); // clearOnComplete=true → clears bar line, cursor at col 0
 
   if (bench.teardown) await bench.teardown(adapter, ctx);
 
   const stats = computeStats(timings);
+  const elapsedS = (tMeasureEnd - tMeasureStart) / 1000;
+  const throughputRps = elapsedS > 0 ? timings.length / elapsedS : 0;
 
   const memAvgKb =
     memSamples.length > 0
@@ -234,6 +241,7 @@ async function runCase(
     concurrency,
     timings_ms: timings,
     errors,
+    throughput_rps: Math.round(throughputRps * 10) / 10,
     ...stats,
     mem_avg_kb: Math.round(memAvgKb),
     mem_peak_kb: Math.round(memPeakKb),
@@ -316,7 +324,7 @@ function printSummaryTable(results: RunResult[]): void {
       const isWorst = r.adapter === worstPerCase[caseName];
       const hl = isBest ? green : isWorst ? red : (s: string) => s;
 
-      const rps = r.mean > 0 ? (r.concurrency * 1000) / r.mean : 0;
+      const rps = r.throughput_rps;
       const throughput =
         rps >= 1000
           ? `${(rps / 1000).toFixed(1)}k r/s`
@@ -368,6 +376,7 @@ function toCsv(results: RunResult[]): string {
     "case",
     "iterations",
     "concurrency",
+    "throughput_rps",
     "mean_ms",
     "p50_ms",
     "p95_ms",
@@ -387,6 +396,7 @@ function toCsv(results: RunResult[]): string {
       r.case,
       r.iterations,
       r.concurrency,
+      r.throughput_rps.toFixed(1),
       r.mean.toFixed(3),
       r.p50.toFixed(3),
       r.p95.toFixed(3),
