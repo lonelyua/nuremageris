@@ -19,9 +19,23 @@ All adapters implement the `DbAdapter` interface from [src/types.ts](src/types.t
 The runner has no knowledge of what is used under the hood — it receives an adapter and calls contract methods.
 **Never break this interface without synchronously updating all implementations.**
 
-### Identical SQL scenarios
-Each case in [bench/cases/index.ts](bench/cases/index.ts) must perform semantically identical
-work across all adapters. Adding optimisations to only one adapter is not allowed.
+### Identical business semantics, idiomatic implementation
+Each case in [bench/cases/index.ts](bench/cases/index.ts) must return identical data and
+perform the same business operation across all adapters. Each adapter uses the approach
+that is natural and typical for that library — do not introduce artificial degradations
+or non-native tricks to skew results in either direction.
+
+Observed SQL-level differences are not violations; they are the subject of the benchmark:
+- `pg` pool uses `ANY($1::int[])` for array lookups; knex/Prisma generate `IN($1…$N)`
+- raw/knex/dal fetch deep hierarchies via a single JOIN; Prisma `include` issues separate
+  SELECT per relation level (Prisma's fluent API cannot produce JOINs)
+- raw/knex/dal batch-INSERT items in one statement; Prisma creates each row individually
+  (how `create` + nested relations works in Prisma's transaction model)
+
+What is prohibited: adding a hand-written SQL shortcut (e.g. `$queryRaw` with a JOIN) to
+Prisma only for `getTopOrdersWithItems` while leaving other adapters unchanged — that would
+replace the library's natural behaviour with a manual optimisation, making the result
+unrepresentative of real-world usage.
 
 ### Fixed schema and seed
 The schema in [db/schema/001_schema.sql](db/schema/001_schema.sql) is the single source of truth.
