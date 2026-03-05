@@ -60,12 +60,17 @@ export class HybridAdapter implements DbAdapter {
       idleTimeoutMillis:       dbConfig.pool.idleTimeoutMs,
     })
 
-    // Prisma pool params via URL query string (timeouts in seconds).
-    const poolTimeout = Math.max(1, Math.ceil(dbConfig.pool.connectionTimeoutMs / 1000))
+    // Prisma pool params via URL query string (all timeout values in seconds).
+    // connection_limit = max pool size (matches pool.max for all adapters).
+    // pool_timeout     = wait for a free connection from the pool (≈ knex acquireTimeoutMillis).
+    // connect_timeout  = TCP connection establishment timeout (≈ pg connectionTimeoutMillis).
+    // NOTE: Prisma URL does not expose min connections or idle_timeout.
+    //       min is effectively 0 (lazy); warmup iterations pre-warm the pool before measurement.
+    const timeoutSec = Math.max(1, Math.ceil(dbConfig.pool.connectionTimeoutMs / 1000))
     const url =
       `postgresql://${dbConfig.user}:${dbConfig.password}` +
       `@${dbConfig.host}:${dbConfig.port}/${dbConfig.database}` +
-      `?connection_limit=${dbConfig.pool.max}&pool_timeout=${poolTimeout}`
+      `?connection_limit=${dbConfig.pool.max}&pool_timeout=${timeoutSec}&connect_timeout=${timeoutSec}`
     this.prisma = new PrismaClient({ log: [], datasources: { db: { url } } })
   }
 
