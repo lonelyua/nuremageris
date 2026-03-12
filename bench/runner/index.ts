@@ -367,6 +367,15 @@ function printSummaryTable(results: RunResult[]): void {
 }
 
 // ------------------------------------------------------------------
+// Compact JSON (no timings_ms array)
+// ------------------------------------------------------------------
+
+function toCompactJson(results: RunResult[]): string {
+  const compact = results.map(({ timings_ms: _drop, ...rest }) => rest)
+  return JSON.stringify(compact, null, 2)
+}
+
+// ------------------------------------------------------------------
 // CSV serialisation
 // ------------------------------------------------------------------
 
@@ -534,11 +543,18 @@ async function main() {
   if (writeReport) {
     fs.mkdirSync(outDir, { recursive: true });
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
-    const jsonPath = path.join(outDir, `results_${ts}.json`);
-    const csvPath = path.join(outDir, `summary_${ts}.csv`);
-    fs.writeFileSync(jsonPath, JSON.stringify(allResults, null, 2));
+    const jsonFullPath = path.join(outDir, `results_${ts}.json`);
+    const jsonMiniPath = path.join(outDir, `results_mini_${ts}.json`);
+    const csvPath      = path.join(outDir, `summary_${ts}.csv`);
+    fs.writeFileSync(jsonFullPath, JSON.stringify(allResults, null, 2));
+    fs.writeFileSync(jsonMiniPath, toCompactJson(allResults));
     fs.writeFileSync(csvPath, toCsv(allResults));
-    console.log(`${dim("Results saved:")}  ${jsonPath}   ${csvPath}`);
+    console.log(
+      `${dim("Results saved:")}\n` +
+      `  full JSON  ${jsonFullPath}\n` +
+      `  mini JSON  ${jsonMiniPath}\n` +
+      `  CSV        ${csvPath}`
+    );
   }
 }
 
