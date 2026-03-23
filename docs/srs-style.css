@@ -1,0 +1,257 @@
+/* ============================================================
+   SRS Document Style — nuremageris
+   Usage: pandoc SRS.md -o SRS.html --css srs-style.css --standalone --embed-resources
+   ============================================================ */
+
+/* --- Base --- */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12pt;
+  line-height: 1.6;
+  color: #1a1a1a;
+  background: #ffffff;
+  margin: 0;
+  padding: 0;
+}
+
+/* --- Page layout --- */
+.main-content, article, body > * {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 40px 60px;
+}
+
+@media print {
+  body {
+    font-size: 11pt;
+    padding: 0;
+  }
+  h1, h2, h3 {
+    page-break-after: avoid;
+  }
+  table {
+    page-break-inside: avoid;
+  }
+}
+
+/* --- Title block (pandoc metadata) --- */
+header, .title-block {
+  text-align: center;
+  margin-bottom: 40px;
+  padding-bottom: 20px;
+  border-bottom: 3px solid #2c5f8a;
+}
+
+.title {
+  font-size: 20pt;
+  font-weight: bold;
+  color: #1a3a5c;
+  margin-bottom: 8px;
+}
+
+.subtitle {
+  font-size: 14pt;
+  color: #2c5f8a;
+}
+
+/* --- Headings --- */
+h1 {
+  font-size: 16pt;
+  font-weight: bold;
+  color: #1a3a5c;
+  border-bottom: 2px solid #2c5f8a;
+  padding-bottom: 6px;
+  margin-top: 40px;
+  margin-bottom: 16px;
+}
+
+h2 {
+  font-size: 13pt;
+  font-weight: bold;
+  color: #1a3a5c;
+  border-bottom: 1px solid #a8c4d8;
+  padding-bottom: 4px;
+  margin-top: 30px;
+  margin-bottom: 12px;
+}
+
+h3 {
+  font-size: 12pt;
+  font-weight: bold;
+  color: #2c5f8a;
+  margin-top: 22px;
+  margin-bottom: 8px;
+}
+
+h4 {
+  font-size: 11pt;
+  font-weight: bold;
+  font-style: italic;
+  color: #2c5f8a;
+  margin-top: 16px;
+  margin-bottom: 6px;
+}
+
+/* --- Paragraphs --- */
+p {
+  margin-top: 0;
+  margin-bottom: 10px;
+  text-align: justify;
+}
+
+/* --- Strong / emphasis in requirement IDs --- */
+strong {
+  color: #1a1a1a;
+  font-weight: bold;
+}
+
+/* Requirement identifiers like REQ-F-01 */
+strong:first-child {
+  color: #1a3a5c;
+}
+
+/* --- Lists --- */
+ul, ol {
+  margin-top: 4px;
+  margin-bottom: 10px;
+  padding-left: 28px;
+}
+
+li {
+  margin-bottom: 4px;
+}
+
+/* --- Tables --- */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0 20px 0;
+  font-size: 10.5pt;
+}
+
+thead tr {
+  background-color: #2c5f8a;
+  color: #ffffff;
+}
+
+thead th {
+  padding: 8px 12px;
+  text-align: left;
+  font-weight: bold;
+  border: 1px solid #1a3a5c;
+}
+
+tbody tr:nth-child(even) {
+  background-color: #eaf1f7;
+}
+
+tbody tr:nth-child(odd) {
+  background-color: #ffffff;
+}
+
+tbody tr:hover {
+  background-color: #d4e6f1;
+}
+
+tbody td {
+  padding: 6px 12px;
+  border: 1px solid #b8cdd8;
+  vertical-align: top;
+}
+
+/* --- Code and inline code --- */
+code {
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 9.5pt;
+  background-color: #f0f4f8;
+  border: 1px solid #ccd8e0;
+  border-radius: 3px;
+  padding: 1px 5px;
+  color: #1a3a5c;
+}
+
+pre {
+  background-color: #f4f7fa;
+  border: 1px solid #b8cdd8;
+  border-left: 4px solid #2c5f8a;
+  border-radius: 4px;
+  padding: 14px 18px;
+  overflow-x: auto;
+  margin: 14px 0;
+}
+
+pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 9pt;
+  color: #1a1a1a;
+}
+
+/* --- Blockquotes (used for research question) --- */
+blockquote {
+  margin: 16px 0;
+  padding: 12px 20px;
+  border-left: 4px solid #2c5f8a;
+  background-color: #eaf1f7;
+  color: #2c3e50;
+  font-style: italic;
+  border-radius: 0 4px 4px 0;
+}
+
+blockquote p {
+  margin: 0;
+}
+
+/* --- Horizontal rules --- */
+hr {
+  border: none;
+  border-top: 1.5px solid #b8cdd8;
+  margin: 30px 0;
+}
+
+/* --- Links --- */
+a {
+  color: #2c5f8a;
+  text-decoration: underline;
+}
+
+a:hover {
+  color: #1a3a5c;
+}
+
+/* --- Table of Contents --- */
+nav#TOC, .toc {
+  background-color: #f4f7fa;
+  border: 1px solid #b8cdd8;
+  border-radius: 4px;
+  padding: 16px 24px;
+  margin-bottom: 32px;
+}
+
+nav#TOC ul, .toc ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+nav#TOC li, .toc li {
+  margin-bottom: 3px;
+}
+
+nav#TOC a, .toc a {
+  text-decoration: none;
+  color: #2c5f8a;
+}
+
+nav#TOC a:hover, .toc a:hover {
+  text-decoration: underline;
+}
+
+/* --- Cover / title page metadata (pandoc bold key-value pairs) --- */
+p > strong:only-child {
+  color: #2c5f8a;
+}
