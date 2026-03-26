@@ -4,3 +4,4 @@ dist/
 bench/reports/*.json
 bench/reports/*.csv
 bench/reports/charts/
+CLAUDE.md
