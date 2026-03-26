@@ -4,9 +4,9 @@
 **Document ID:** SRS-NUREMAGERIS-1.0
 **Version:** 1.0
 **Date:** 2026-03-19
-**Organization:** [University Name], [Department Name]
-**Author:** [Author Name]
-**Status:** Draft
+**Organization:** NURE, Software Engineering
+**Author:** Ivan Bobyr
+**Status:** Final
 
 ---
 
